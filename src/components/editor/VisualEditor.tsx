@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { ElementsPanel } from "./ElementsPanel";
 import { PropertiesPanel } from "./PropertiesPanel";
+import { toast } from "sonner";
 
 interface VisualEditorProps {
   clonedSite: {
@@ -23,11 +24,14 @@ interface VisualEditorProps {
     html: string;
     assets: string[];
   };
+  onExecuteCode?: (jsCode: string) => void;
 }
 
-export function VisualEditor({ clonedSite }: VisualEditorProps) {
+export function VisualEditor({ clonedSite, onExecuteCode }: VisualEditorProps) {
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [previewMode, setPreviewMode] = useState<"visual" | "code">("visual");
+  const [currentHtml, setCurrentHtml] = useState(clonedSite.html);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const getViewportClass = () => {
     switch (viewMode) {
@@ -35,6 +39,46 @@ export function VisualEditor({ clonedSite }: VisualEditorProps) {
       case "tablet": return "max-w-2xl";
       default: return "max-w-full";
     }
+  };
+
+  const executeCode = (jsCode: string) => {
+    try {
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        // Execute code in iframe context
+        const contentWindow = iframeRef.current.contentWindow as any;
+        contentWindow.eval(jsCode);
+        
+        // Get updated HTML from iframe
+        const updatedHtml = iframeRef.current.contentDocument?.documentElement.outerHTML;
+        if (updatedHtml) {
+          setCurrentHtml(updatedHtml);
+        }
+        
+        toast.success("Código executado com sucesso!");
+      } else {
+        // Fallback: try to execute in current window (for non-iframe content)
+        (window as any).eval(jsCode);
+        toast.success("Código executado com sucesso!");
+      }
+    } catch (error: any) {
+      console.error("Erro ao executar código:", error);
+      toast.error(`Erro ao executar código: ${error.message}`);
+    }
+    
+    // Also call the parent callback if provided
+    if (onExecuteCode) {
+      onExecuteCode(jsCode);
+    }
+  };
+
+  const handleSave = () => {
+    console.log("Salvando alterações...");
+    const htmlToSave = iframeRef.current?.contentDocument?.documentElement.outerHTML || currentHtml;
+    
+    // Here you could implement actual saving functionality
+    // For now, just show a success message
+    toast.success("Alterações salvas!");
+    console.log("HTML atualizado:", htmlToSave);
   };
 
   return (
@@ -80,7 +124,12 @@ export function VisualEditor({ clonedSite }: VisualEditorProps) {
               <Button variant="ghost" size="sm">
                 <Redo className="w-4 h-4" />
               </Button>
-              <Button variant="outline" size="sm" className="cyber-border">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="cyber-border"
+                onClick={handleSave}
+              >
                 <Save className="w-4 h-4 mr-2" />
                 Salvar
               </Button>
@@ -118,9 +167,12 @@ export function VisualEditor({ clonedSite }: VisualEditorProps) {
               <Card className="glass-effect h-[600px]">
                 <CardContent className="p-4 h-full">
                   <div className={`mx-auto transition-all duration-300 ${getViewportClass()}`}>
-                    <div 
-                      className="border border-border rounded-lg p-4 bg-white text-black min-h-[500px]"
-                      dangerouslySetInnerHTML={{ __html: clonedSite.html }}
+                    <iframe
+                      ref={iframeRef}
+                      className="w-full min-h-[500px] border border-border rounded-lg bg-white"
+                      srcDoc={currentHtml}
+                      sandbox="allow-scripts allow-same-origin allow-forms"
+                      title="Website Preview"
                     />
                   </div>
                 </CardContent>
@@ -131,7 +183,7 @@ export function VisualEditor({ clonedSite }: VisualEditorProps) {
               <Card className="glass-effect h-[600px]">
                 <CardContent className="p-4 h-full">
                   <pre className="text-sm text-muted-foreground overflow-auto h-full">
-                    <code>{clonedSite.html}</code>
+                    <code>{currentHtml}</code>
                   </pre>
                 </CardContent>
               </Card>

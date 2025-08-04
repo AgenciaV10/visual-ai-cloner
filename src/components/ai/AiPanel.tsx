@@ -13,25 +13,64 @@ import {
   History
 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
-export function AiPanel() {
+interface AiPanelProps {
+  onExecuteCode?: (jsCode: string) => void;
+  currentHtml?: string;
+}
+
+export function AiPanel({ onExecuteCode, currentHtml }: AiPanelProps) {
   const [command, setCommand] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!command.trim()) return;
 
+    if (!currentHtml) {
+      toast.error("Nenhum site carregado para editar");
+      return;
+    }
+
     setIsProcessing(true);
     
     try {
-      // Simulate AI processing
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      console.log("Enviando comando para IA:", command);
+      
+      const { data, error } = await supabase.functions.invoke('ai-edit', {
+        body: { 
+          command: command.trim(),
+          currentHtml 
+        }
+      });
+      
+      if (error) {
+        console.error("Erro na função de IA:", error);
+        throw new Error(error.message);
+      }
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      console.log("Código JavaScript gerado:", data.jsCode);
+      
+      // Execute the generated JavaScript code
+      if (data.jsCode && onExecuteCode) {
+        onExecuteCode(data.jsCode);
+      }
+      
+      // Add to history
+      setCommandHistory(prev => [command, ...prev.slice(0, 4)]);
+      
       toast.success("Comando executado com sucesso!");
       setCommand("");
     } catch (error) {
-      toast.error("Erro ao processar comando");
+      console.error("Erro ao processar comando:", error);
+      toast.error(`Erro ao processar comando: ${error.message}`);
     } finally {
       setIsProcessing(false);
     }
@@ -141,15 +180,17 @@ export function AiPanel() {
           </h3>
           
           <div className="space-y-2 text-sm">
-            <div className="p-2 rounded bg-muted/50">
-              ✅ Título alterado para "Bem-vindo"
-            </div>
-            <div className="p-2 rounded bg-muted/50">
-              ✅ Imagem do banner atualizada
-            </div>
-            <div className="p-2 rounded bg-muted/50">
-              ✅ Cor do botão alterada para azul
-            </div>
+            {commandHistory.length === 0 ? (
+              <div className="p-2 rounded bg-muted/50 text-muted-foreground">
+                Nenhum comando executado ainda
+              </div>
+            ) : (
+              commandHistory.map((cmd, index) => (
+                <div key={index} className="p-2 rounded bg-muted/50">
+                  ✅ {cmd}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </CardContent>

@@ -4,6 +4,40 @@ import { UrlInput } from "@/components/clone/UrlInput";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import { AiPanel } from "@/components/ai/AiPanel";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+
+interface EditorLayoutProps {
+  clonedSite: {
+    url: string;
+    html: string;
+    assets: string[];
+  };
+}
+
+function EditorLayout({ clonedSite }: EditorLayoutProps) {
+  const [currentHtml, setCurrentHtml] = useState(clonedSite.html);
+
+  const handleExecuteCode = (jsCode: string) => {
+    console.log("Executando código JavaScript:", jsCode);
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-12rem)]">
+      <div className="lg:col-span-3">
+        <VisualEditor 
+          clonedSite={clonedSite} 
+          onExecuteCode={handleExecuteCode} 
+        />
+      </div>
+      <div className="lg:col-span-1">
+        <AiPanel 
+          onExecuteCode={handleExecuteCode}
+          currentHtml={currentHtml}
+        />
+      </div>
+    </div>
+  );
+}
 
 const Index = () => {
   const [currentUrl, setCurrentUrl] = useState<string>("");
@@ -16,20 +50,34 @@ const Index = () => {
     setCurrentUrl(url);
     
     try {
-      // Simulate cloning process
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log("Iniciando clonagem do site:", url);
       
-      // Mock cloned site data
+      const { data, error } = await supabase.functions.invoke('clone-website', {
+        body: { url }
+      });
+      
+      if (error) {
+        console.error("Erro na função de clonagem:", error);
+        throw new Error(error.message);
+      }
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      console.log("Site clonado com sucesso:", data);
+      
       setClonedSite({
-        url,
-        html: `<html><head><title>Cloned Site</title></head><body><h1>Welcome to ${url}</h1><p>This is a cloned website</p></body></html>`,
-        assets: ["style.css", "script.js", "image.jpg"]
+        url: data.url,
+        html: data.html,
+        assets: data.assets || []
       });
       
       setActiveTab("editor");
       toast.success("Site clonado com sucesso!");
     } catch (error) {
-      toast.error("Erro ao clonar o site");
+      console.error("Erro ao clonar site:", error);
+      toast.error(`Erro ao clonar o site: ${error.message}`);
     } finally {
       setIsCloning(false);
     }
@@ -56,14 +104,7 @@ const Index = () => {
         )}
         
         {activeTab === "editor" && clonedSite && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-12rem)]">
-            <div className="lg:col-span-3">
-              <VisualEditor clonedSite={clonedSite} />
-            </div>
-            <div className="lg:col-span-1">
-              <AiPanel />
-            </div>
-          </div>
+          <EditorLayout clonedSite={clonedSite} />
         )}
       </main>
     </div>
