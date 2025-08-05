@@ -3,7 +3,6 @@ import { Header } from "@/components/layout/Header";
 import { UrlInput } from "@/components/clone/UrlInput";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import { AiPanel } from "@/components/ai/AiPanel";
-import { TestRunner } from "@/components/testing/TestRunner";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -17,7 +16,6 @@ interface EditorLayoutProps {
 
 function EditorLayout({ clonedSite }: EditorLayoutProps) {
   const [currentHtml, setCurrentHtml] = useState(clonedSite.html);
-  const [selectedElement, setSelectedElement] = useState<Element | null>(null);
 
   const handleExecuteCode = (jsCode: string) => {
     console.log("Executando código JavaScript:", jsCode);
@@ -28,12 +26,10 @@ function EditorLayout({ clonedSite }: EditorLayoutProps) {
       <div className="lg:col-span-3">
         <VisualEditor 
           clonedSite={clonedSite} 
-          onExecuteCode={handleExecuteCode}
-          selectedElement={selectedElement}
-          onElementSelect={setSelectedElement}
+          onExecuteCode={handleExecuteCode} 
         />
       </div>
-      <div className="lg:col-span-1 space-y-4">
+      <div className="lg:col-span-1">
         <AiPanel 
           onExecuteCode={handleExecuteCode}
           currentHtml={currentHtml}
@@ -111,8 +107,6 @@ const Index = () => {
           <EditorLayout clonedSite={clonedSite} />
         )}
       </main>
-      
-      <TestRunner />
     </div>
   );
 };
