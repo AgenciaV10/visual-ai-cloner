@@ -25,12 +25,16 @@ interface VisualEditorProps {
     assets: string[];
   };
   onExecuteCode?: (jsCode: string) => void;
+  selectedElement?: Element | null;
+  onElementSelect?: (element: Element | null) => void;
 }
 
-export function VisualEditor({ clonedSite, onExecuteCode }: VisualEditorProps) {
+export function VisualEditor({ clonedSite, onExecuteCode, selectedElement, onElementSelect }: VisualEditorProps) {
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [previewMode, setPreviewMode] = useState<"visual" | "code">("visual");
   const [currentHtml, setCurrentHtml] = useState(clonedSite.html);
+  const [internalSelectedElement, setInternalSelectedElement] = useState<Element | null>(null);
+  const [isHoverMode, setIsHoverMode] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const getViewportClass = () => {
@@ -43,21 +47,27 @@ export function VisualEditor({ clonedSite, onExecuteCode }: VisualEditorProps) {
 
   const executeCode = (jsCode: string) => {
     try {
-      if (iframeRef.current && iframeRef.current.contentWindow) {
-        // Execute code in iframe context
-        const contentWindow = iframeRef.current.contentWindow as any;
-        contentWindow.eval(jsCode);
+      console.log("Executando código JavaScript:", jsCode);
+      
+      if (iframeRef.current && iframeRef.current.contentWindow && iframeRef.current.contentDocument) {
+        const iframe = iframeRef.current;
+        const iframeDoc = iframe.contentDocument;
+        const iframeWindow = iframe.contentWindow as any;
         
-        // Get updated HTML from iframe
-        const updatedHtml = iframeRef.current.contentDocument?.documentElement.outerHTML;
-        if (updatedHtml) {
-          setCurrentHtml(updatedHtml);
+        // Add jQuery if not present for easier DOM manipulation
+        if (!iframeWindow.jQuery) {
+          const script = iframeDoc.createElement('script');
+          script.src = 'https://code.jquery.com/jquery-3.6.0.min.js';
+          script.onload = () => {
+            executeJavaScriptInIframe(jsCode, iframeWindow, iframeDoc);
+          };
+          iframeDoc.head.appendChild(script);
+        } else {
+          executeJavaScriptInIframe(jsCode, iframeWindow, iframeDoc);
         }
-        
-        toast.success("Código executado com sucesso!");
       } else {
-        // Fallback: try to execute in current window (for non-iframe content)
-        (window as any).eval(jsCode);
+        console.warn("Iframe não disponível, executando no contexto principal");
+        eval(jsCode);
         toast.success("Código executado com sucesso!");
       }
     } catch (error: any) {
@@ -65,9 +75,127 @@ export function VisualEditor({ clonedSite, onExecuteCode }: VisualEditorProps) {
       toast.error(`Erro ao executar código: ${error.message}`);
     }
     
-    // Also call the parent callback if provided
     if (onExecuteCode) {
       onExecuteCode(jsCode);
+    }
+  };
+
+  const executeJavaScriptInIframe = (jsCode: string, iframeWindow: any, iframeDoc: Document) => {
+    try {
+      // Create a safer execution context
+      const safeEval = new Function('document', 'window', '$', jsCode);
+      safeEval.call(iframeWindow, iframeDoc, iframeWindow, iframeWindow.jQuery || iframeWindow.$);
+      
+      // Update current HTML after execution
+      const updatedHtml = iframeDoc.documentElement.outerHTML;
+      if (updatedHtml) {
+        setCurrentHtml(updatedHtml);
+      }
+      
+      toast.success("Código executado com sucesso!");
+      console.log("JavaScript executado no iframe:", jsCode);
+    } catch (error: any) {
+      console.error("Erro ao executar no iframe:", error);
+      toast.error(`Erro: ${error.message}`);
+    }
+  };
+
+  const enableHoverMode = () => {
+    setIsHoverMode(true);
+    if (iframeRef.current && iframeRef.current.contentDocument) {
+      const iframeDoc = iframeRef.current.contentDocument;
+      addHoverListeners(iframeDoc);
+    }
+  };
+
+  const disableHoverMode = () => {
+    setIsHoverMode(false);
+    setInternalSelectedElement(null);
+    onElementSelect?.(null);
+    if (iframeRef.current && iframeRef.current.contentDocument) {
+      const iframeDoc = iframeRef.current.contentDocument;
+      removeHoverListeners(iframeDoc);
+    }
+  };
+
+  const addHoverListeners = (doc: Document) => {
+    const style = doc.createElement('style');
+    style.id = 'hover-select-styles';
+    style.innerHTML = `
+      .hover-highlight {
+        outline: 2px solid #3b82f6 !important;
+        outline-offset: 2px !important;
+        cursor: pointer !important;
+      }
+      .selected-element {
+        outline: 3px solid #10b981 !important;
+        outline-offset: 2px !important;
+        position: relative !important;
+      }
+    `;
+    doc.head.appendChild(style);
+
+    const handleMouseOver = (e: Event) => {
+      const target = e.target as Element;
+      if (target && target !== doc.body && target !== doc.documentElement) {
+        target.classList.add('hover-highlight');
+      }
+    };
+
+    const handleMouseOut = (e: Event) => {
+      const target = e.target as Element;
+      if (target) {
+        target.classList.remove('hover-highlight');
+      }
+    };
+
+    const handleClick = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const target = e.target as Element;
+      
+      // Remove previous selection
+      doc.querySelectorAll('.selected-element').forEach(el => {
+        el.classList.remove('selected-element');
+      });
+      
+      // Add selection to current element
+      if (target && target !== doc.body && target !== doc.documentElement) {
+        target.classList.add('selected-element');
+        setInternalSelectedElement(target);
+        onElementSelect?.(target);
+        toast.success(`Elemento selecionado: ${target.tagName.toLowerCase()}`);
+      }
+    };
+
+    // Add event listeners
+    doc.addEventListener('mouseover', handleMouseOver);
+    doc.addEventListener('mouseout', handleMouseOut);
+    doc.addEventListener('click', handleClick);
+
+    // Store listeners for removal
+    (doc as any)._hoverListeners = { handleMouseOver, handleMouseOut, handleClick };
+  };
+
+  const removeHoverListeners = (doc: Document) => {
+    // Remove styles
+    const style = doc.getElementById('hover-select-styles');
+    if (style) {
+      style.remove();
+    }
+
+    // Remove all highlight classes
+    doc.querySelectorAll('.hover-highlight, .selected-element').forEach(el => {
+      el.classList.remove('hover-highlight', 'selected-element');
+    });
+
+    // Remove event listeners
+    if ((doc as any)._hoverListeners) {
+      const { handleMouseOver, handleMouseOut, handleClick } = (doc as any)._hoverListeners;
+      doc.removeEventListener('mouseover', handleMouseOver);
+      doc.removeEventListener('mouseout', handleMouseOut);
+      doc.removeEventListener('click', handleClick);
+      delete (doc as any)._hoverListeners;
     }
   };
 
@@ -118,6 +246,14 @@ export function VisualEditor({ clonedSite, onExecuteCode }: VisualEditorProps) {
             </div>
             
             <div className="flex items-center space-x-2">
+              <Button 
+                variant={isHoverMode ? "default" : "ghost"} 
+                size="sm"
+                onClick={isHoverMode ? disableHoverMode : enableHoverMode}
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                {isHoverMode ? "Sair Seleção" : "Selecionar"}
+              </Button>
               <Button variant="ghost" size="sm">
                 <Undo className="w-4 h-4" />
               </Button>
@@ -171,8 +307,14 @@ export function VisualEditor({ clonedSite, onExecuteCode }: VisualEditorProps) {
                       ref={iframeRef}
                       className="w-full min-h-[500px] border border-border rounded-lg bg-white"
                       srcDoc={currentHtml}
-                      sandbox="allow-scripts allow-same-origin allow-forms"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
                       title="Website Preview"
+                      onLoad={() => {
+                        console.log("Iframe carregado");
+                        if (isHoverMode && iframeRef.current?.contentDocument) {
+                          addHoverListeners(iframeRef.current.contentDocument);
+                        }
+                      }}
                     />
                   </div>
                 </CardContent>
@@ -193,7 +335,10 @@ export function VisualEditor({ clonedSite, onExecuteCode }: VisualEditorProps) {
         
         {/* Properties Panel */}
         <div className="lg:col-span-1">
-          <PropertiesPanel />
+          <PropertiesPanel 
+            selectedElement={selectedElement || internalSelectedElement}
+            onExecuteCode={executeCode}
+          />
         </div>
       </div>
     </div>
